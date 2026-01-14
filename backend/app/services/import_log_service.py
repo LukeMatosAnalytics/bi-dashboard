@@ -1,3 +1,7 @@
+"""
+Serviço de Log de Importações
+"""
+from typing import Optional
 from sqlalchemy import text
 from app.core.database import engine
 
@@ -7,11 +11,14 @@ def registrar_importacao(
     email_usuario: str,
     nome_arquivo: str,
     tipo_arquivo: str,
-    quantidade_registros: int | None,
+    quantidade_registros: Optional[int],
     status: str,
-    mensagem_erro: str | None = None
+    mensagem_erro: Optional[str] = None
 ):
-    sql = """
+    """
+    Registra uma importação no log
+    """
+    sql = text("""
     INSERT INTO control.importacoes (
         contrato_id,
         email_usuario,
@@ -20,8 +27,7 @@ def registrar_importacao(
         quantidade_registros,
         status,
         mensagem_erro
-    )
-    VALUES (
+    ) VALUES (
         :contrato_id,
         :email_usuario,
         :nome_arquivo,
@@ -30,18 +36,15 @@ def registrar_importacao(
         :status,
         :mensagem_erro
     )
-    """
-
+    """)
+    
     with engine.begin() as conn:
-        conn.execute(
-            text(sql),
-            {
-                "contrato_id": contrato_id,
-                "email_usuario": email_usuario,
-                "nome_arquivo": nome_arquivo,
-                "tipo_arquivo": tipo_arquivo,
-                "quantidade_registros": quantidade_registros,
-                "status": status,
-                "mensagem_erro": mensagem_erro
-            }
-        )
+        conn.execute(sql, {
+            "contrato_id": contrato_id,
+            "email_usuario": email_usuario,
+            "nome_arquivo": nome_arquivo,
+            "tipo_arquivo": tipo_arquivo,
+            "quantidade_registros": quantidade_registros,
+            "status": status,
+            "mensagem_erro": mensagem_erro
+        })

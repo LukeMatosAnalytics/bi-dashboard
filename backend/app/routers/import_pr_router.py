@@ -1,62 +1,58 @@
+"""
+Endpoints de importação de dados - Estado PR
+"""
 import os
 import shutil
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 
 from app.core.permissions import somente_admin_ou_master
-from app.services.import_service import importar_em_chunks
+from app.services.import_service import ImportService
 
-router = APIRouter(
-    prefix="/import/pr",
-    tags=["Importação PR"]
-)
+router = APIRouter(prefix="/import/pr", tags=["Importação PR"])
 
+TEMP_FOLDER = "temp"
 
-# ==============================
-# FUNÇÃO AUXILIAR
-# ==============================
 
 def _salvar_arquivo_temporario(arquivo: UploadFile) -> str:
-    pasta_temp = "temp"
-    os.makedirs(pasta_temp, exist_ok=True)
-
-    caminho = os.path.join(pasta_temp, arquivo.filename)
-
+    """Salva arquivo em pasta temporária"""
+    os.makedirs(TEMP_FOLDER, exist_ok=True)
+    caminho = os.path.join(TEMP_FOLDER, arquivo.filename)
+    
     with open(caminho, "wb") as buffer:
         shutil.copyfileobj(arquivo.file, buffer)
-
+    
     return caminho
 
 
 def _validar_nome_arquivo(nome: str, contrato_id: str):
+    """Valida que arquivo pertence ao contrato do usuário"""
     if not nome.lower().endswith(".xlsx"):
         raise HTTPException(400, "Arquivo deve ser .xlsx")
-
+    
     if not nome.startswith(contrato_id):
         raise HTTPException(
             403,
-            "Arquivo não pertence ao contrato do usuário"
+            f"Arquivo deve iniciar com o ID do contrato ({contrato_id})"
         )
 
-
-# ==============================
-# ENDPOINTS
-# ==============================
 
 @router.post("/os-selo")
 def importar_os_selo(
     arquivo: UploadFile = File(...),
     usuario=Depends(somente_admin_ou_master)
 ):
+    """
+    Importa arquivo de OS x Selo
+    """
     _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
     caminho = _salvar_arquivo_temporario(arquivo)
-
-    return importar_em_chunks(
+    
+    return ImportService.importar_arquivo(
         caminho_excel=caminho,
-        tabela="os_selo",
+        tipo_arquivo="os_selo",
         contrato_id=usuario["contrato_id"],
         email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename,
-        tipo_arquivo="os_selo"
+        nome_arquivo=arquivo.filename
     )
 
 
@@ -65,16 +61,18 @@ def importar_os_lanc(
     arquivo: UploadFile = File(...),
     usuario=Depends(somente_admin_ou_master)
 ):
+    """
+    Importa arquivo de OS x Lançamentos
+    """
     _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
     caminho = _salvar_arquivo_temporario(arquivo)
-
-    return importar_em_chunks(
+    
+    return ImportService.importar_arquivo(
         caminho_excel=caminho,
-        tabela="os_lanc",
+        tipo_arquivo="os_lanc",
         contrato_id=usuario["contrato_id"],
         email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename,
-        tipo_arquivo="os_lanc"
+        nome_arquivo=arquivo.filename
     )
 
 
@@ -83,16 +81,38 @@ def importar_his_selo(
     arquivo: UploadFile = File(...),
     usuario=Depends(somente_admin_ou_master)
 ):
+    """
+    Importa arquivo de Histórico de Selos
+    """
     _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
     caminho = _salvar_arquivo_temporario(arquivo)
-
-    return importar_em_chunks(
+    
+    return ImportService.importar_arquivo(
         caminho_excel=caminho,
-        tabela="his_selo",
+        tipo_arquivo="his_selo",
         contrato_id=usuario["contrato_id"],
         email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename,
-        tipo_arquivo="his_selo"
+        nome_arquivo=arquivo.filename
+    )
+
+
+@router.post("/his-selo-detalhe")
+def importar_his_selo_detalhe(
+    arquivo: UploadFile = File(...),
+    usuario=Depends(somente_admin_ou_master)
+):
+    """
+    Importa arquivo de Histórico de Selo Detalhe PR
+    """
+    _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
+    caminho = _salvar_arquivo_temporario(arquivo)
+    
+    return ImportService.importar_arquivo(
+        caminho_excel=caminho,
+        tipo_arquivo="his_selo_detalhe_pr",
+        contrato_id=usuario["contrato_id"],
+        email_usuario=usuario["email"],
+        nome_arquivo=arquivo.filename
     )
 
 
@@ -101,14 +121,16 @@ def importar_tabela_lancamentos(
     arquivo: UploadFile = File(...),
     usuario=Depends(somente_admin_ou_master)
 ):
+    """
+    Importa tabela de referência de lançamentos
+    """
     _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
     caminho = _salvar_arquivo_temporario(arquivo)
-
-    return importar_em_chunks(
+    
+    return ImportService.importar_arquivo(
         caminho_excel=caminho,
-        tabela="tabela_de_lancamentos",
+        tipo_arquivo="tabela_de_lancamentos",
         contrato_id=usuario["contrato_id"],
         email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename,
-        tipo_arquivo="tabela_de_lancamentos"
+        nome_arquivo=arquivo.filename
     )
