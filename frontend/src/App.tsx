@@ -1,44 +1,43 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './contexts/AuthContext'
-import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Importacao from './pages/Importacao'
-import Usuarios from './pages/Usuarios'
-import MainLayout from './components/layout/MainLayout'
-
-function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading } = useAuth()
-  
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-  
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />
-}
+import { useEffect, useState } from "react";
+import { getMetrics } from "./Services/Metrics";
+import type { Metric } from "./types/Metrics";
+import { MetricsTable } from "./components/MetricsTable";
+import { KpiCard } from "./components/KpiCard";
 
 function App() {
+  const [metrics, setMetrics] = useState<Metric[]>([]);
+
+  useEffect(() => {
+    getMetrics().then(setMetrics);
+  }, []);
+
+  const latestByName = (name: string) => {
+    return metrics
+      .filter((m) => m.name === name)
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() -
+          new Date(a.created_at).getTime()
+      )[0];
+  };
+
+  const atendimentos = latestByName("Atendimentos")?.value ?? "-";
+  const receita = latestByName("Receita")?.value ?? "-";
+  const satisfacao = latestByName("Satisfação")?.value ?? "-";
+
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      
-      <Route path="/" element={
-        <PrivateRoute>
-          <MainLayout />
-        </PrivateRoute>
-      }>
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="importacao" element={<Importacao />} />
-        <Route path="usuarios" element={<Usuarios />} />
-      </Route>
-      
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  )
+    <div style={{ padding: 24 }}>
+      <h1>BI Dashboard</h1>
+
+      <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
+        <KpiCard title="Atendimentos" value={atendimentos} />
+        <KpiCard title="Receita (R$)" value={receita} />
+        <KpiCard title="Satisfação" value={satisfacao} />
+      </div>
+
+      <MetricsTable metrics={metrics} />
+    </div>
+  );
 }
 
-export default App
+export default App;

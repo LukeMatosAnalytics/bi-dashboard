@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>BI Preview - Ordens de Serviço</title>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 40px;
+      background: #f5f6fa;
+    }
+
+    h1 {
+      margin-bottom: 30px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      max-width: 1200px;
+    }
+
+    .card {
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+
+    canvas {
+      width: 100%;
+      height: 350px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>BI Preview — Ordens de Serviço</h1>
+
+  <div class="grid">
+    <div class="card">
+      <h3>OS por Mês</h3>
+      <canvas id="chartOsMes"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>OS por Situação</h3>
+      <canvas id="chartOsSituacao"></canvas>
+    </div>
+  </div>
+
+  <script>
+    // 🔐 TOKEN FIXO (APENAS PARA PREVIEW LOCAL)
+    const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsdWNhc0BhbnNhdGEuY29tLmJyIiwicm9sZSI6IkFETUlOIiwiY29udHJhdG9faWQiOiIwNDE2MTkiLCJleHAiOjE3Njg1NDM3Mjl9.3egipsC2mxDzbYYOYh2rNgtqY2t44Fc4Q8bRyLQ2_2Q";
+
+    async function carregarDados() {
+      const response = await fetch("http://127.0.0.1:8000/bi/os-lanc/preview", {
+        headers: {
+          "Authorization": `Bearer ${TOKEN}`
+        }
+      });
+
+      if (!response.ok) {
+        alert("Erro ao carregar dados do BI (verifique token ou API)");
+        throw new Error("Erro na API");
+      }
+
+      return await response.json();
+    }
+
+    async function renderizarGraficos() {
+      const data = await carregarDados();
+
+      // =========================
+      // 📊 OS POR MÊS
+      // =========================
+      const labelsMes = data.por_mes.map(item => item.label);
+      const valoresMes = data.por_mes.map(item => item.value);
+
+      new Chart(document.getElementById("chartOsMes"), {
+        type: "bar",
+        data: {
+          labels: labelsMes,
+          datasets: [{
+            label: "Quantidade de OS",
+            data: valoresMes,
+            backgroundColor: "#4e73df"
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              display: true
+            }
+          }
+        }
+      });
+
+      // =========================
+      // 🥧 OS POR SITUAÇÃO
+      // =========================
+      const labelsSituacao = data.por_situacao.map(item => item.label);
+      const valoresSituacao = data.por_situacao.map(item => item.value);
+
+      new Chart(document.getElementById("chartOsSituacao"), {
+        type: "pie",
+        data: {
+          labels: labelsSituacao,
+          datasets: [{
+            data: valoresSituacao,
+            backgroundColor: [
+              "#1cc88a", // ABERTO
+              "#36b9cc", // BAIXADO
+              "#f6c23e", // EM COBRANÇA
+              "#e74a3b", // CANCELADO
+              "#858796", // ESTORNADO
+              "#4e73df", // FECHADO
+              "#fd7e14"  // PENDENTE
+            ]
+          }]
+        }
+      });
+    }
+
+    renderizarGraficos();
+  </script>
+
+</body>
+</html>

@@ -10,5 +10,5 @@ com atualização automática e manual.
 ## Tecnologias (planejadas)
 - Backend: Python + FastAPI
 - Frontend: React
-- Autenticação: Microsoft (Azure AD / Entra ID)
+- Autenticação: Login de usuário (Com multifator posteriormente)
 - Hospedagem: Azure

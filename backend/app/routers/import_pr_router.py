@@ -1,136 +1,172 @@
-"""
-Endpoints de importação de dados - Estado PR
-"""
 import os
 import shutil
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from fastapi import (
+    APIRouter,
+    UploadFile,
+    File,
+    Depends,
+    Form,
+    HTTPException
+)
 
 from app.core.permissions import somente_admin_ou_master
-from app.services.import_service import ImportService
+from app.core.import_config import ModoImportacao
 
-router = APIRouter(prefix="/import/pr", tags=["Importação PR"])
+# SERVICES
+from app.services.import_tabela_lancamentos_pr_service import (
+    importar_tabela_lancamentos_pr
+)
+from app.services.import_his_selo_detalhe_pr_service import (
+    importar_his_selo_detalhe_pr
+)
+from app.services.import_os_selo_pr_service import (
+    importar_os_selo_pr
+)
+from app.services.import_his_selo_pr_service import (
+    importar_his_selo_pr
+)
+from app.services.import_os_lanc_pr_service import (
+    importar_os_lanc_pr
+)
 
-TEMP_FOLDER = "temp"
+router = APIRouter(
+    prefix="/import/pr",
+    tags=["Importação PR"]
+)
 
+# ======================================================
+# FUNÇÕES AUXILIARES
+# ======================================================
 
 def _salvar_arquivo_temporario(arquivo: UploadFile) -> str:
-    """Salva arquivo em pasta temporária"""
-    os.makedirs(TEMP_FOLDER, exist_ok=True)
-    caminho = os.path.join(TEMP_FOLDER, arquivo.filename)
-    
+    pasta_temp = "temp"
+    os.makedirs(pasta_temp, exist_ok=True)
+
+    caminho = os.path.join(pasta_temp, arquivo.filename)
+
     with open(caminho, "wb") as buffer:
         shutil.copyfileobj(arquivo.file, buffer)
-    
+
     return caminho
 
 
-def _validar_nome_arquivo(nome: str, contrato_id: str):
-    """Valida que arquivo pertence ao contrato do usuário"""
+def _validar_arquivo_basico(nome: str):
     if not nome.lower().endswith(".xlsx"):
-        raise HTTPException(400, "Arquivo deve ser .xlsx")
-    
-    if not nome.startswith(contrato_id):
         raise HTTPException(
-            403,
-            f"Arquivo deve iniciar com o ID do contrato ({contrato_id})"
+            status_code=400,
+            detail="Arquivo deve ser .xlsx"
         )
 
+# ======================================================
+# ENDPOINT — OS_SELO
+# ======================================================
 
 @router.post("/os-selo")
 def importar_os_selo(
     arquivo: UploadFile = File(...),
+    sistema_origem_id: int = Form(...),
+    modo_importacao: ModoImportacao = Form(...),
+    senha_confirmacao: str | None = Form(None),
     usuario=Depends(somente_admin_ou_master)
 ):
-    """
-    Importa arquivo de OS x Selo
-    """
-    _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
+    _validar_arquivo_basico(arquivo.filename)
     caminho = _salvar_arquivo_temporario(arquivo)
-    
-    return ImportService.importar_arquivo(
-        caminho_excel=caminho,
-        tipo_arquivo="os_selo",
+
+    return importar_os_selo_pr(
+        file=caminho,
         contrato_id=usuario["contrato_id"],
-        email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename
+        usuario_email=usuario["email"],
+        sistema_origem_id=sistema_origem_id,
+        modo_importacao=modo_importacao,
+        senha_confirmacao=senha_confirmacao
     )
 
+# ======================================================
+# ENDPOINT — OS_LANC (MIGRADO PARA SERVICE PRÓPRIO)
+# ======================================================
 
 @router.post("/os-lanc")
 def importar_os_lanc(
     arquivo: UploadFile = File(...),
+    sistema_origem_id: int = Form(...),
+    modo_importacao: ModoImportacao = Form(...),
+    senha_confirmacao: str | None = Form(None),
     usuario=Depends(somente_admin_ou_master)
 ):
-    """
-    Importa arquivo de OS x Lançamentos
-    """
-    _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
+    _validar_arquivo_basico(arquivo.filename)
     caminho = _salvar_arquivo_temporario(arquivo)
-    
-    return ImportService.importar_arquivo(
-        caminho_excel=caminho,
-        tipo_arquivo="os_lanc",
+
+    return importar_os_lanc_pr(
+        file=caminho,
         contrato_id=usuario["contrato_id"],
-        email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename
+        usuario_email=usuario["email"],
+        sistema_origem_id=sistema_origem_id,
+        modo_importacao=modo_importacao,
+        senha_confirmacao=senha_confirmacao
     )
 
+# ======================================================
+# ENDPOINT — HIS_SELO
+# ======================================================
 
 @router.post("/his-selo")
 def importar_his_selo(
     arquivo: UploadFile = File(...),
+    sistema_origem_id: int = Form(...),
+    modo_importacao: ModoImportacao = Form(...),
+    senha_confirmacao: str | None = Form(None),
     usuario=Depends(somente_admin_ou_master)
 ):
-    """
-    Importa arquivo de Histórico de Selos
-    """
-    _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
+    _validar_arquivo_basico(arquivo.filename)
     caminho = _salvar_arquivo_temporario(arquivo)
-    
-    return ImportService.importar_arquivo(
-        caminho_excel=caminho,
-        tipo_arquivo="his_selo",
+
+    return importar_his_selo_pr(
+        file=caminho,
         contrato_id=usuario["contrato_id"],
-        email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename
+        usuario_email=usuario["email"],
+        sistema_origem_id=sistema_origem_id,
+        modo_importacao=modo_importacao,
+        senha_confirmacao=senha_confirmacao
     )
 
-
-@router.post("/his-selo-detalhe")
-def importar_his_selo_detalhe(
-    arquivo: UploadFile = File(...),
-    usuario=Depends(somente_admin_ou_master)
-):
-    """
-    Importa arquivo de Histórico de Selo Detalhe PR
-    """
-    _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
-    caminho = _salvar_arquivo_temporario(arquivo)
-    
-    return ImportService.importar_arquivo(
-        caminho_excel=caminho,
-        tipo_arquivo="his_selo_detalhe_pr",
-        contrato_id=usuario["contrato_id"],
-        email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename
-    )
-
+# ======================================================
+# ENDPOINT — TABELA DE LANÇAMENTOS (DIMENSÃO)
+# ======================================================
 
 @router.post("/tabela-lancamentos")
 def importar_tabela_lancamentos(
     arquivo: UploadFile = File(...),
     usuario=Depends(somente_admin_ou_master)
 ):
-    """
-    Importa tabela de referência de lançamentos
-    """
-    _validar_nome_arquivo(arquivo.filename, usuario["contrato_id"])
+    _validar_arquivo_basico(arquivo.filename)
     caminho = _salvar_arquivo_temporario(arquivo)
-    
-    return ImportService.importar_arquivo(
-        caminho_excel=caminho,
-        tipo_arquivo="tabela_de_lancamentos",
+
+    return importar_tabela_lancamentos_pr(
+        file=caminho,
         contrato_id=usuario["contrato_id"],
-        email_usuario=usuario["email"],
-        nome_arquivo=arquivo.filename
+        usuario_email=usuario["email"]
+    )
+
+# ======================================================
+# ENDPOINT — HIS_SELO_DETALHE
+# ======================================================
+
+@router.post("/his-selo-detalhe")
+def importar_his_selo_detalhe(
+    arquivo: UploadFile = File(...),
+    sistema_origem_id: int = Form(...),
+    modo_importacao: ModoImportacao = Form(...),
+    senha_confirmacao: str | None = Form(None),
+    usuario=Depends(somente_admin_ou_master)
+):
+    _validar_arquivo_basico(arquivo.filename)
+    caminho = _salvar_arquivo_temporario(arquivo)
+
+    return importar_his_selo_detalhe_pr(
+        file=caminho,
+        contrato_id=usuario["contrato_id"],
+        usuario_email=usuario["email"],
+        sistema_origem_id=sistema_origem_id,
+        modo_importacao=modo_importacao,
+        senha_confirmacao=senha_confirmacao
     )

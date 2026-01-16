@@ -11,23 +11,14 @@ from app.core.security import verificar_senha_usuario
 
 
 # ======================================================
-# COLUNAS OBRIGATÓRIAS DO ARQUIVO OS_LANC
+# COLUNAS OBRIGATÓRIAS DO ARQUIVO OS_SELO
 # ======================================================
 
 COLUNAS_OBRIGATORIAS = {
     "id",
-    "situacao",
-    "quantidade",
-    "valor",
-    "capa",
-    "livro",
-    "folha",
-    "dt_lancou",
-    "os",
-    "sequencia",
-    "operacao",
-    "lcto",
-    "recibo",
+    "os_id",
+    "selo",
+    "quantidade"
 }
 
 
@@ -35,19 +26,19 @@ COLUNAS_OBRIGATORIAS = {
 # SERVICE
 # ======================================================
 
-def importar_os_lanc_pr(
+def importar_os_selo_pr(
     *,
     file: str,
     contrato_id: str,
     usuario_email: str,
     sistema_origem_id: int,
     modo_importacao: ModoImportacao,
-    senha_confirmacao: str | None
+    senha_confirmacao: str | None = None
 ):
     # --------------------------------------------------
-    # 1. Validar tipo de importação
+    # 1. Configuração do tipo de importação
     # --------------------------------------------------
-    tipo = "os_lanc"
+    tipo = "os_selo"
     config = TIPOS_IMPORTACAO[tipo]
 
     if (
@@ -60,13 +51,13 @@ def importar_os_lanc_pr(
         )
 
     # --------------------------------------------------
-    # 2. Validar senha (somente INITIAL)
+    # 2. Confirmação de senha (carga inicial)
     # --------------------------------------------------
     if modo_importacao == ModoImportacao.INITIAL:
         if not senha_confirmacao:
             raise HTTPException(
-                status_code=400,
-                detail="Confirmação de senha é obrigatória para carga inicial"
+                400,
+                "Confirmação de senha obrigatória para carga inicial"
             )
 
         if not verificar_senha_usuario(
@@ -74,8 +65,8 @@ def importar_os_lanc_pr(
             senha_plana=senha_confirmacao
         ):
             raise HTTPException(
-                status_code=403,
-                detail="Senha inválida"
+                403,
+                "Senha inválida"
             )
 
     # --------------------------------------------------
@@ -90,36 +81,35 @@ def importar_os_lanc_pr(
     faltantes = COLUNAS_OBRIGATORIAS - set(df.columns)
 
     if faltantes:
-        raise ValueError(
-            f"Colunas obrigatórias ausentes: {', '.join(sorted(faltantes))}"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Colunas obrigatórias ausentes: {', '.join(sorted(faltantes))}"
         )
 
     # --------------------------------------------------
-    # 5. Selecionar apenas colunas usadas
+    # 5. Manter somente colunas usadas
     # --------------------------------------------------
     df = df[list(COLUNAS_OBRIGATORIAS)]
 
     # --------------------------------------------------
-    # 6. Normalizações
+    # 6. Normalização
     # --------------------------------------------------
     df = df.astype(object)
     df = df.where(pd.notnull(df), None)
-
-    df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
-    df["quantidade"] = pd.to_numeric(df["quantidade"], errors="coerce").fillna(1)
-
-    df["dt_lancou"] = pd.to_datetime(
-        df["dt_lancou"],
-        errors="coerce"
-    )
 
     # --------------------------------------------------
     # 7. Remover registros inválidos
     # --------------------------------------------------
     df = df[
-        df["os"].notnull()
-        & df["sequencia"].notnull()
+        df["os_id"].notnull() &
+        df["selo"].notnull()
     ]
+
+    if df.empty:
+        return {
+            "status": "SEM_DADOS",
+            "registros_processados": 0
+        }
 
     # --------------------------------------------------
     # 8. Colunas de controle
@@ -129,61 +119,35 @@ def importar_os_lanc_pr(
 
     registros = df.to_dict("records")
 
-    if not registros:
-        return {
-            "status": "SEM_DADOS",
-            "registros_processados": 0
-        }
-
     # --------------------------------------------------
-    # 9. SQL DELETE (somente INITIAL)
+    # 9. DELETE (somente carga inicial)
     # --------------------------------------------------
     delete_sql = text("""
-        DELETE FROM data_pr.os_lanc
+        DELETE FROM data_pr.os_selo
         WHERE contrato_id = :contrato_id
           AND sistema_origem_id = :sistema_origem_id
     """)
 
     # --------------------------------------------------
-    # 10. SQL INSERT
+    # 10. INSERT (idempotente)
     # --------------------------------------------------
     insert_sql = text("""
-        INSERT INTO data_pr.os_lanc (
-            contrato_id,
-            sistema_origem_id,
-
+        INSERT INTO data_pr.os_selo (
             id,
-            situacao,
+            os_id,
+            selo,
             quantidade,
-            valor,
-            capa,
-            livro,
-            folha,
-            dt_lancou,
-            os,
-            sequencia,
-            operacao,
-            lcto,
-            recibo
+            contrato_id,
+            sistema_origem_id
         ) VALUES (
-            :contrato_id,
-            :sistema_origem_id,
-
             :id,
-            :situacao,
+            :os_id,
+            :selo,
             :quantidade,
-            :valor,
-            :capa,
-            :livro,
-            :folha,
-            :dt_lancou,
-            :os,
-            :sequencia,
-            :operacao,
-            :lcto,
-            :recibo
+            :contrato_id,
+            :sistema_origem_id
         )
-        ON CONFLICT (contrato_id, sistema_origem_id, os, sequencia)
+        ON CONFLICT (contrato_id, sistema_origem_id, os_id, selo)
         DO NOTHING
     """)
 
@@ -204,6 +168,7 @@ def importar_os_lanc_pr(
 
     return {
         "status": "SUCESSO",
-        "modo_importacao": modo_importacao,
-        "registros_processados": len(registros)
+        "modo_importacao": modo_importacao.value,
+        "registros_processados": len(registros),
+        "sistema_origem_id": sistema_origem_id
     }

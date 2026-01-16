@@ -1,45 +1,23 @@
-"""
-Conexão com o banco de dados
-"""
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from contextlib import contextmanager
+from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
-# Engine do SQLAlchemy
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20
+    pool_pre_ping=True
 )
 
-# Session factory
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
+from typing import Generator
+from sqlalchemy.orm import Session
 
 
-def get_db():
-    """
-    Dependência para obter sessão do banco
-    Uso: db: Session = Depends(get_db)
-    """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-@contextmanager
-def get_db_context():
-    """
-    Context manager para uso fora do FastAPI
-    """
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
