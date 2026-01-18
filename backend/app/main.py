@@ -72,13 +72,9 @@ app.add_exception_handler(
 
 # 🔥 AJUSTE TEMPORÁRIO PARA DEV
 @app.exception_handler(Exception)
-async def debug_generic_exception_handler(request: Request, exc: Exception):
-    print("\n🔥 ERRO REAL CAPTURADO NO HANDLER GLOBAL 🔥")
-    traceback.print_exc()
-    print("🔥 FIM DO TRACEBACK 🔥\n")
+async def debug_generic_exception_handler(request, exc):
+    return generic_exception_handler(request, exc)
 
-    # mantém comportamento original
-    return await generic_exception_handler(request, exc)
 
 # ======================================================
 # ROTAS

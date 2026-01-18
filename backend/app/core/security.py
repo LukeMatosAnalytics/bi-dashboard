@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from jose import jwt
+from jose import jwt, JWTError
 from passlib.context import CryptContext
 from sqlalchemy import text
 
@@ -30,10 +30,6 @@ def gerar_hash_senha(senha: str) -> str:
 def verificar_senha(senha_plana: str, senha_hash: str) -> bool:
     """
     Compara senha digitada com hash salvo.
-
-    Boa prática:
-    - Limita a senha a 72 bytes (limite do bcrypt)
-    - Evita erro e comportamento inseguro
     """
     senha_plana = senha_plana[:72]
     return pwd_context.verify(senha_plana, senha_hash)
@@ -41,7 +37,7 @@ def verificar_senha(senha_plana: str, senha_hash: str) -> bool:
 
 def verificar_senha_usuario(*, email: str, senha_plana: str) -> bool:
     """
-    Valida a senha do usuário consultando o banco
+    Valida a senha do usuário consultando o banco.
     """
     sql = text("""
         SELECT senha_hash
@@ -71,9 +67,9 @@ ALGORITHM = "HS256"
 def criar_token_acesso(
     dados: dict,
     expires_delta: Optional[timedelta] = None
-):
+) -> str:
     """
-    Cria token JWT de acesso
+    Cria token JWT de acesso.
     """
     to_encode = dados.copy()
 
@@ -92,3 +88,24 @@ def criar_token_acesso(
     )
 
     return encoded_jwt
+
+
+def decodificar_token(token: str) -> Dict[str, Any]:
+    """
+    Decodifica e valida o token JWT.
+
+    - Verifica assinatura
+    - Verifica expiração
+    - Retorna o payload
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+        return payload
+
+    except JWTError:
+        # Mantém o erro para ser tratado no auth.py
+        raise
