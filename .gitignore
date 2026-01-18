@@ -24,3 +24,6 @@ Uploads/
 backend/temp/
 *.xlsx
 *.txt
+
+# Docs / locais
+Estrutura das planilhas/

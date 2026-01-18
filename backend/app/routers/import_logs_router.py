@@ -1,25 +1,47 @@
-from fastapi import APIRouter, Depends, Query, Path
+from fastapi import APIRouter, Depends, Query
 
 from app.core.permissions import somente_admin_ou_master
-from app.core.responses import success_response
 from app.services.import_logs_service import (
     listar_import_logs,
     obter_import_log_por_id
 )
+from app.schemas.import_logs_schema import (
+    ImportLogItemSchema,
+    ImportLogListResponseSchema,
+    ImportLogListMetaSchema
+)
+from app.core.responses import success_response
 from app.core.success_codes import SuccessCode
 
 
 router = APIRouter(
-    prefix="/imports/logs",
-    tags=["Auditoria - Importações"]
+    prefix="/import-logs",
+    tags=["Importações / Logs"]
 )
 
 
 # ======================================================
-# LISTAGEM DE LOGS
+# LISTAR LOGS DE IMPORTAÇÃO
 # ======================================================
 
-@router.get("")
+@router.get(
+    "",
+    response_model=ImportLogListResponseSchema,
+    summary="Listar logs de importação",
+    description="""
+Retorna o histórico de importações do sistema.
+
+Filtros disponíveis:
+- contrato
+- tipo de arquivo
+- status
+- código de erro
+- usuário
+- período
+
+Usado para auditoria, suporte N2/N3 e monitoramento operacional.
+"""
+)
 def listar_logs(
     contrato_id: str | None = Query(None),
     tipo_arquivo: str | None = Query(None),
@@ -28,12 +50,12 @@ def listar_logs(
     usuario_email: str | None = Query(None),
     data_inicio: str | None = Query(None),
     data_fim: str | None = Query(None),
-    limit: int = Query(50, le=200),
-    offset: int = Query(0),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     usuario=Depends(somente_admin_ou_master),
 ):
     logs, total = listar_import_logs(
-        contrato_id=contrato_id,
+        contrato_id=contrato_id or usuario["contrato_id"],
         tipo_arquivo=tipo_arquivo,
         status=status,
         error_code=error_code,
@@ -45,35 +67,39 @@ def listar_logs(
     )
 
     return success_response(
-        code=SuccessCode.OPERATION_SUCCESS,
-        data=[log.model_dump() for log in logs],
+        code=SuccessCode.LIST_SUCCESS,
+        data=logs,
         meta={
             "total": total,
             "limit": limit,
-            "offset": offset
+            "offset": offset,
         }
     )
 
 
 # ======================================================
-# DETALHE DE UM LOG
+# DETALHE DE UM LOG DE IMPORTAÇÃO
 # ======================================================
 
-@router.get("/{log_id}")
-def detalhe_log(
-    log_id: int = Path(..., ge=1),
+@router.get(
+    "/{log_id}",
+    response_model=ImportLogItemSchema,
+    summary="Detalhar log de importação",
+    description="Retorna todos os detalhes de uma importação específica."
+)
+def obter_log(
+    log_id: int,
     usuario=Depends(somente_admin_ou_master),
 ):
     log = obter_import_log_por_id(log_id)
 
     if not log:
         return success_response(
-            code=SuccessCode.OPERATION_SUCCESS,
-            data={},
-            meta={"found": False}
+            code=SuccessCode.EMPTY_RESULT,
+            data={}
         )
 
     return success_response(
-        code=SuccessCode.OPERATION_SUCCESS,
-        data=log.model_dump()
+        code=SuccessCode.DETAIL_SUCCESS,
+        data=log
     )

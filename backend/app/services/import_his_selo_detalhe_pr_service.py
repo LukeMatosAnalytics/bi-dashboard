@@ -1,64 +1,26 @@
+import os
 import pandas as pd
 from sqlalchemy import text
-from fastapi import HTTPException
 
 from app.core.database import engine
-from app.core.import_config import (
-    TIPOS_IMPORTACAO,
-    ModoImportacao
-)
+from app.core.import_config import TIPOS_IMPORTACAO, ModoImportacao
 from app.core.security import verificar_senha_usuario
-from app.core.import_log import (
-    criar_log_importacao,
-    atualizar_log_importacao
-)
+from app.core.import_log import registrar_import_log
+from app.core.exceptions import BusinessException
+from app.core.errors import ErrorCode
 
 
 # ======================================================
-# COLUNAS OBRIGATÓRIAS
+# COLUNAS OBRIGATÓRIAS DO ARQUIVO HIS_SELO_DETALHE_PR
 # ======================================================
+# Fonte REAL: Excel
+# Data de negócio (BI): dataato → data_ato (BANCO)
 
 COLUNAS_OBRIGATORIAS = {
-    "recordnumber",
-
+    "id",
     "selo_principal",
-    "selo_retificacao",
-    "selo_anulacao",
-    "selo_cancelamento",
-    "seloretificado",
-
-    "codtipoato",
     "id_codigo_ato",
-
-    "numpedido",
-    "protocolo",
-    "documento",
-
-    "chavedigital",
-    "qrcode",
-    "caminhoimagem",
-    "json",
-
-    "valorbase",
-    "divisor",
-    "quantidade",
-
-    "funrejus",
-    "iss",
-    "fadep",
-    "funarpen",
-
-    "cartorio",
-    "distribuidor",
-
-    "planilha_ag_contraente2_nome_adotado",
-    "planilha_ag_contraente2_cpf",
-
-    "status",
-    "mensagem",
-
-    "id_tipo_gratuidade",
-    "id_usuario"
+    "dataato",
 }
 
 
@@ -71,59 +33,50 @@ def importar_his_selo_detalhe_pr(
     file: str,
     contrato_id: str,
     usuario_email: str,
-    senha_confirmacao: str | None,
+    usuario_id: int,
     sistema_origem_id: int,
     modo_importacao: ModoImportacao,
-    nome_arquivo: str | None = None
+    senha_confirmacao: str | None,
 ):
-    tipo_arquivo = "his_selo_detalhe_pr"
-    log_id = None
+    registros_lidos = 0
+    registros_processados = 0
+    nome_arquivo = os.path.basename(file)
 
     try:
         # --------------------------------------------------
-        # LOG - início
-        # --------------------------------------------------
-        log_id = criar_log_importacao(
-            contrato_id=contrato_id,
-            sistema_origem_id=sistema_origem_id,
-            usuario_email=usuario_email,
-            tipo_arquivo=tipo_arquivo,
-            modo_importacao=modo_importacao.value,
-            nome_arquivo=nome_arquivo
-        )
-
-        # --------------------------------------------------
         # 1. Validar tipo de importação
         # --------------------------------------------------
-        config = TIPOS_IMPORTACAO[tipo_arquivo]
+        tipo = "his_selo_detalhe_pr"
+
+        if tipo not in TIPOS_IMPORTACAO:
+            raise BusinessException(
+                ErrorCode.INVALID_IMPORT_MODE,
+                detail=f"Tipo de importação não configurado: {tipo}"
+            )
+
+        config = TIPOS_IMPORTACAO[tipo]
 
         if (
             modo_importacao == ModoImportacao.INCREMENTAL
             and not config["permite_incremental"]
         ):
-            raise HTTPException(
-                status_code=400,
-                detail="Este tipo de importação não permite carga incremental"
+            raise BusinessException(
+                ErrorCode.INVALID_IMPORT_MODE,
+                detail="Carga incremental não permitida para este tipo"
             )
 
         # --------------------------------------------------
-        # 2. Validar senha se carga inicial
+        # 2. Validar senha (somente INITIAL)
         # --------------------------------------------------
         if modo_importacao == ModoImportacao.INITIAL:
             if not senha_confirmacao:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Confirmação de senha é obrigatória para carga inicial"
-                )
+                raise BusinessException(ErrorCode.INVALID_PASSWORD)
 
             if not verificar_senha_usuario(
                 email=usuario_email,
                 senha_plana=senha_confirmacao
             ):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Senha inválida"
-                )
+                raise BusinessException(ErrorCode.INVALID_PASSWORD)
 
         # --------------------------------------------------
         # 3. Ler Excel
@@ -131,161 +84,125 @@ def importar_his_selo_detalhe_pr(
         df = pd.read_excel(file)
         df.columns = df.columns.str.lower()
 
+        registros_lidos = len(df)
+
+        if registros_lidos == 0:
+            raise BusinessException(ErrorCode.EMPTY_FILE)
+
         # --------------------------------------------------
         # 4. Validar colunas obrigatórias
         # --------------------------------------------------
         faltantes = COLUNAS_OBRIGATORIAS - set(df.columns)
+
         if faltantes:
-            raise ValueError(
-                f"Colunas obrigatórias ausentes: {', '.join(sorted(faltantes))}"
+            raise BusinessException(
+                ErrorCode.MISSING_REQUIRED_COLUMNS,
+                detail=f"Colunas ausentes: {', '.join(sorted(faltantes))}"
             )
 
         # --------------------------------------------------
-        # 5. Selecionar colunas usadas
+        # 5. Manter apenas colunas necessárias
         # --------------------------------------------------
         df = df[list(COLUNAS_OBRIGATORIAS)]
 
         # --------------------------------------------------
-        # 6. Normalização
+        # 6. Normalizações (forma estável)
         # --------------------------------------------------
         df = df.astype(object)
         df = df.where(pd.notnull(df), None)
 
-        df = df.rename(columns={
-            "planilha_ag_contraente2_nome_adotado": "contraente_nome",
-            "planilha_ag_contraente2_cpf": "contraente_cpf"
-        })
-
-        df = df[df["recordnumber"].notnull()]
+        # Data de negócio (BI)
+        datas = pd.to_datetime(df["dataato"], errors="coerce")
+        df["data_ato"] = datas.dt.date
 
         # --------------------------------------------------
-        # 7. Colunas de controle
+        # 7. Remover registros inválidos
+        # --------------------------------------------------
+        df = df[
+            df["id"].notna()
+            & df["selo_principal"].notna()
+            & df["id_codigo_ato"].notna()
+            & df["data_ato"].notna()
+        ]
+
+        if df.empty:
+            raise BusinessException(
+                ErrorCode.EMPTY_FILE,
+                detail="Nenhum registro válido após validações"
+            )
+
+        # --------------------------------------------------
+        # 8. Colunas de controle
         # --------------------------------------------------
         df["contrato_id"] = contrato_id
         df["sistema_origem_id"] = sistema_origem_id
 
         registros = df.to_dict("records")
 
-        if not registros:
-            atualizar_log_importacao(
-                log_id=log_id,
-                status="SEM_DADOS",
-                registros_processados=0
-            )
-            return {
-                "status": "SEM_DADOS",
-                "registros_processados": 0
-            }
-
         # --------------------------------------------------
-        # 8. SQL
+        # 9. SQL INSERT
         # --------------------------------------------------
-        delete_sql = text("""
-            DELETE FROM data_pr.his_selo_detalhe_pr
-            WHERE contrato_id = :contrato_id
-              AND sistema_origem_id = :sistema_origem_id
-        """)
-
         insert_sql = text("""
             INSERT INTO data_pr.his_selo_detalhe_pr (
-                recordnumber,
+                id,
                 selo_principal,
-                selo_retificacao,
-                selo_anulacao,
-                selo_cancelamento,
-                seloretificado,
-                codtipoato,
                 id_codigo_ato,
-                numpedido,
-                protocolo,
-                documento,
-                chavedigital,
-                qrcode,
-                caminhoimagem,
-                json,
-                valorbase,
-                divisor,
-                quantidade,
-                funrejus,
-                iss,
-                fadep,
-                funarpen,
-                cartorio,
-                distribuidor,
-                contraente_nome,
-                contraente_cpf,
-                status,
-                mensagem,
-                id_tipo_gratuidade,
-                id_usuario,
+                data_ato,
                 contrato_id,
                 sistema_origem_id
             ) VALUES (
-                :recordnumber,
+                :id,
                 :selo_principal,
-                :selo_retificacao,
-                :selo_anulacao,
-                :selo_cancelamento,
-                :seloretificado,
-                :codtipoato,
                 :id_codigo_ato,
-                :numpedido,
-                :protocolo,
-                :documento,
-                :chavedigital,
-                :qrcode,
-                :caminhoimagem,
-                CAST(:json AS JSONB),
-                :valorbase,
-                :divisor,
-                :quantidade,
-                :funrejus,
-                :iss,
-                :fadep,
-                :funarpen,
-                :cartorio,
-                :distribuidor,
-                :contraente_nome,
-                :contraente_cpf,
-                :status,
-                :mensagem,
-                :id_tipo_gratuidade,
-                :id_usuario,
+                :data_ato,
                 :contrato_id,
                 :sistema_origem_id
             )
-            ON CONFLICT (recordnumber, sistema_origem_id) DO NOTHING
+            ON CONFLICT (contrato_id, sistema_origem_id, id)
+            DO NOTHING
         """)
 
+        # --------------------------------------------------
+        # 10. EXECUÇÃO
+        # --------------------------------------------------
         with engine.begin() as conn:
-            if modo_importacao == ModoImportacao.INITIAL:
-                conn.execute(
-                    delete_sql,
-                    {
-                        "contrato_id": contrato_id,
-                        "sistema_origem_id": sistema_origem_id
-                    }
-                )
+            result = conn.execute(insert_sql, registros)
+            registros_processados = result.rowcount or 0
 
-            conn.execute(insert_sql, registros)
-
-        atualizar_log_importacao(
-            log_id=log_id,
-            status="SUCESSO",
-            registros_processados=len(registros)
+        # --------------------------------------------------
+        # 11. LOG DE SUCESSO
+        # --------------------------------------------------
+        registrar_import_log(
+            usuario_id=usuario_id,
+            usuario_email=usuario_email,
+            contrato_id=contrato_id,
+            sistema_origem_id=sistema_origem_id,
+            tipo_arquivo="his_selo_detalhe_pr",
+            modo_importacao=modo_importacao.value,
+            nome_arquivo=nome_arquivo,
+            total_registros=registros_lidos,
+            registros_processados=registros_processados,
+            status="SUCCESS"
         )
 
         return {
-            "status": "SUCESSO",
-            "modo_importacao": modo_importacao.value,
-            "registros_processados": len(registros)
+            "success": True,
+            "data": {
+                "arquivo": nome_arquivo,
+                "modo_importacao": modo_importacao.value,
+                "registros_lidos": registros_lidos,
+                "registros_processados": registros_processados
+            }
         }
 
-    except Exception as e:
-        if log_id:
-            atualizar_log_importacao(
-                log_id=log_id,
-                status="ERRO",
-                mensagem=str(e)
-            )
+    except BusinessException:
         raise
+
+    except Exception as e:
+        import traceback
+
+        print("\n🔥 ERRO REAL NA IMPORTAÇÃO HIS_SELO_DETALHE_PR 🔥")
+        traceback.print_exc()
+        print("🔥 FIM DO TRACEBACK 🔥\n")
+
+        raise e

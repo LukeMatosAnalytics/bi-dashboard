@@ -8,6 +8,7 @@ from pydantic import ConfigDict
 class Settings(BaseSettings):
     # Aplicação
     APP_NAME: str = "BI Dashboard API"
+    APP_VERSION: str = "1.0.0"
     ENVIRONMENT: str = "development"
 
     # Banco de Dados

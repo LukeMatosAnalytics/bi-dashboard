@@ -1,69 +1,65 @@
 import os
 import shutil
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+import traceback
+from fastapi import APIRouter, UploadFile, File, Depends, Form
 
 from app.core.permissions import somente_admin_ou_master
-from app.services.import_service import importar_his_selo_detalhe_pr
+from app.core.import_config import ModoImportacao
+from app.auth.dependencies import get_usuario_logado
+from app.services.import_his_selo_detalhe_pr_service import (
+    importar_his_selo_detalhe_pr
+)
 
-router = APIRouter(prefix="/import", tags=["Importação"])
+router = APIRouter(prefix="/import", tags=["Importações"])
 
 
-@router.post("/his-selo-detalhe-pr")
+@router.post(
+    "/his-selo-detalhe-pr",
+    dependencies=[Depends(somente_admin_ou_master)]
+)
 def importar_his_selo_detalhe_pr_endpoint(
     arquivo: UploadFile = File(...),
-    usuario=Depends(somente_admin_ou_master)
+    modo_importacao: ModoImportacao = Form(...),
+    senha_confirmacao: str | None = Form(None),
+    usuario=Depends(get_usuario_logado),
 ):
     nome_arquivo = arquivo.filename
 
     # 1️⃣ Validar extensão
     if not nome_arquivo.lower().endswith(".xlsx"):
-        raise HTTPException(
-            status_code=400,
-            detail="Arquivo deve ser .xlsx"
-        )
+        raise ValueError("Arquivo deve ser .xlsx")
 
-    # 2️⃣ Validar padrão do nome
-    partes = nome_arquivo.split("_", 1)
-    if len(partes) != 2:
-        raise HTTPException(
-            status_code=400,
-            detail="Nome do arquivo fora do padrão <CONTRATO>_arquivo.xlsx"
-        )
-
-    contrato_arquivo, nome_logico = partes
-
-    # 3️⃣ Validar contrato
-    if usuario["role"] != "MASTER":
-        if contrato_arquivo != usuario["contrato_id"]:
-            raise HTTPException(
-                status_code=403,
-                detail="Arquivo não pertence ao contrato do usuário"
-            )
-
-    # 4️⃣ Validar tipo de arquivo
-    if not nome_logico.startswith("export_his_selo_detalhe_pr"):
-        raise HTTPException(
-            status_code=400,
-            detail="Arquivo incorreto para este endpoint"
-        )
-
-    # 5️⃣ Salvar arquivo temporário
+    # 2️⃣ Criar pasta temporária
     pasta_temp = "temp"
     os.makedirs(pasta_temp, exist_ok=True)
 
     caminho_arquivo = os.path.join(pasta_temp, nome_arquivo)
 
+    # 3️⃣ Salvar arquivo
     with open(caminho_arquivo, "wb") as buffer:
         shutil.copyfileobj(arquivo.file, buffer)
 
-    # 6️⃣ Importar (AGORA com TODOS os parâmetros)
-    resultado = importar_his_selo_detalhe_pr(
-        caminho_arquivo=caminho_arquivo,
-        contrato_id=contrato_arquivo,
-        email_usuario=usuario["email"],
-        nome_arquivo=nome_arquivo
-    )
+    try:
+        # 4️⃣ Chamar service REAL
+        resultado = importar_his_selo_detalhe_pr(
+            file=caminho_arquivo,
+            contrato_id=usuario["contrato_id"],
+            usuario_email=usuario["email"],
+            usuario_id=usuario["id"],
+            sistema_origem_id=usuario["sistema_origem_id"],
+            modo_importacao=modo_importacao,
+            senha_confirmacao=senha_confirmacao,
+        )
+        return resultado
 
-    os.remove(caminho_arquivo)
+    except Exception:
+        # 🔥 EXPOR ERRO REAL EM DEV
+        print("\n🔥 ERRO REAL NO ENDPOINT DE IMPORTAÇÃO 🔥")
+        traceback.print_exc()
+        print("🔥 FIM DO TRACEBACK 🔥\n")
+        raise
 
-    return resultado
+    finally:
+        # 5️⃣ Limpar arquivo temporário
+        if os.path.exists(caminho_arquivo):
+            os.remove(caminho_arquivo)
